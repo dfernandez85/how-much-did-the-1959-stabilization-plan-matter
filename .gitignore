@@ -1,0 +1,13 @@
+output/
+data/raw/*.dta
+data/raw/*.xlsx
+data/raw/*.csv
+!data/raw/checksums.txt
+.Rhistory
+**/.Rhistory
+.RData
+.Ruserdata
+*.log
+*.out.log
+*.err.log
+tmp_docx_*

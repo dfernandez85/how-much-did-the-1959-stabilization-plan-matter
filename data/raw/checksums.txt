@@ -1,0 +1,3 @@
+# MD5 checksums for pinned data files
+# Versioned checksum locks for replication
+pwt110 f051c9340d641d6ad8494d6137a25f1e
