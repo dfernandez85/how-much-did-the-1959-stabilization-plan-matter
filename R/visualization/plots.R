@@ -417,3 +417,101 @@ plot_drop_one_gap_paths <- function(gap_paths_df,
   p
 }
 
+
+# Figura 10: ratio contrafactual/observado del PIB pc, con marcadores SCM
+# (pools restringidos, Tabla 8) y PRS (escenarios I/II, sus Tablas 5 y 7).
+# Banda sombreada: rango de las dos estimaciones PRS del Escenario II.
+plot_counterfactual_ratios <- function(ratio_df,
+                                       scm_markers = NULL,
+                                       prs_markers = NULL,
+                                       band_range = c(0.66, 0.79),
+                                       treatment_year = 1960,
+                                       x_limits = c(1950, 1975),
+                                       y_limits = c(0.38, 1.06),
+                                       title = "Counterfactual-to-observed real GDP per capita") {
+  ratio_df <- ratio_df |>
+    dplyr::mutate(year = as.Date(paste0(year, "-01-01")))
+  x_start <- as.Date(paste0(x_limits[1], "-01-01"))
+  x_end <- as.Date(paste0(x_limits[2], "-01-01"))
+  lab_x <- as.Date(paste0(x_limits[2] - 1, "-01-01"))
+
+  markers <- dplyr::bind_rows(
+    if (!is.null(scm_markers) && nrow(scm_markers) > 0) dplyr::mutate(scm_markers, family = "Synthetic control"),
+    if (!is.null(prs_markers) && nrow(prs_markers) > 0) dplyr::mutate(prs_markers, family = "PRS (2012)")
+  )
+  if (!is.null(markers) && nrow(markers) > 0) {
+    markers$x <- x_end
+    markers <- markers |>
+      dplyr::arrange(dplyr::desc(ratio)) |>
+      dplyr::mutate(lab_y = ratio)
+    if (nrow(markers) > 1) {
+      min_sep <- 0.028
+      for (i in 2:nrow(markers)) {
+        if (markers$lab_y[i - 1] - markers$lab_y[i] < min_sep) {
+          markers$lab_y[i] <- markers$lab_y[i - 1] - min_sep
+        }
+      }
+    }
+  }
+
+  p <- ggplot2::ggplot() +
+    ggplot2::annotate(
+      "rect",
+      xmin = x_start, xmax = x_end,
+      ymin = min(band_range), ymax = max(band_range),
+      fill = "grey70", alpha = 0.25
+    ) +
+    ggplot2::geom_hline(yintercept = 1, colour = "grey45", linewidth = 0.5) +
+    ggplot2::geom_line(
+      data = ratio_df,
+      ggplot2::aes(x = year, y = ratio),
+      colour = "black", linewidth = 1.1, na.rm = TRUE
+    ) +
+    ggplot2::geom_vline(
+      xintercept = as.Date(paste0(treatment_year, "-01-01")),
+      linetype = "dashed", colour = "darkred", linewidth = 0.6
+    )
+
+  if (!is.null(markers) && nrow(markers) > 0) {
+    p <- p +
+      ggplot2::geom_point(
+        data = markers,
+        ggplot2::aes(x = x, y = ratio, shape = family),
+        size = 2.6, colour = "black"
+      ) +
+      ggplot2::geom_label(
+        data = markers,
+        ggplot2::aes(x = lab_x, y = lab_y, label = sprintf("%s (%.2f)", label, ratio)),
+        hjust = 1, size = 2.9, colour = "grey20",
+        fill = scales::alpha("white", 0.75), label.size = 0,
+        label.padding = ggplot2::unit(0.12, "lines")
+      ) +
+      ggplot2::scale_shape_manual(
+        values = c("Synthetic control" = 16, "PRS (2012)" = 17),
+        name = NULL
+      )
+  }
+
+  p +
+    ggplot2::labs(y = "Counterfactual-to-observed ratio", x = "Year", title = title) +
+    ggplot2::theme_minimal() +
+    ggplot2::theme(
+      axis.ticks = ggplot2::element_blank(),
+      axis.text.x = ggplot2::element_text(angle = 90, hjust = 0.5, vjust = 0.5),
+      axis.text = ggplot2::element_text(face = "bold"),
+      legend.position = "bottom"
+    ) +
+    ggplot2::scale_x_date(
+      expand = ggplot2::expansion(mult = c(0, 0.02)),
+      date_breaks = "5 years",
+      minor_breaks = NULL,
+      date_labels = "%Y"
+    ) +
+    ggplot2::coord_cartesian(xlim = c(x_start, x_end)) +
+    ggplot2::scale_y_continuous(
+      limits = y_limits,
+      breaks = seq(0.4, 1.0, by = 0.1),
+      labels = scales::number_format(accuracy = 0.01),
+      expand = ggplot2::expansion(mult = c(0, 0.02))
+    )
+}

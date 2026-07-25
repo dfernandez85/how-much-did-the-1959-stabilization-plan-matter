@@ -57,15 +57,23 @@ export_journal_outputs <- function(session_dir,
     1 / sumsq
   }
 
-  comparison_series_from_result <- function(mscmt_obj, dep_var) {
+  comparison_series_from_result <- function(mscmt_obj, dep_var, years_override = NULL) {
     if (is.null(mscmt_obj) || is.null(mscmt_obj$combined) || is.null(mscmt_obj$combined[[dep_var]])) {
       return(NULL)
     }
     comp <- as.data.frame(mscmt_obj$combined[[dep_var]])
     if (ncol(comp) < 3) return(NULL)
-    years <- suppressWarnings(as.numeric(rownames(comp)))
-    if (length(years) != nrow(comp) || any(is.na(years))) {
-      years <- seq_len(nrow(comp))
+    years <- NULL
+    if (!is.null(years_override) && length(years_override) == nrow(comp)) {
+      years <- years_override
+    }
+    if (is.null(years)) {
+      # mscmt_obj$combined rownames are not reliable time labels; fall back
+      # to parsing them and, failing that, to a bare row index.
+      years <- suppressWarnings(as.numeric(rownames(comp)))
+      if (length(years) != nrow(comp) || any(is.na(years))) {
+        years <- seq_len(nrow(comp))
+      }
     }
     tibble::tibble(
       year = years,
@@ -208,7 +216,11 @@ export_journal_outputs <- function(session_dir,
 
     spec <- spec_lookup[[spec_name]]
     dep_var <- outcome_meta[[outcome_id]]$dep_var
-    comparison_df <- comparison_series_from_result(pool_obj$mscmt, dep_var)
+    treated_years <- NULL
+    if (!is.null(pool_obj$gaps_main)) {
+      treated_years <- pool_obj$gaps_main$year[pool_obj$gaps_main$Country == treatment_identifier]
+    }
+    comparison_df <- comparison_series_from_result(pool_obj$mscmt, dep_var, years_override = treated_years)
     fit_df <- pool_obj$placebo_outputs$fit_metrics_df
     post_avg_gaps <- build_post_avg_gaps(pool_obj, spec_name)
 
@@ -478,6 +490,21 @@ export_journal_outputs <- function(session_dir,
     table4a <- baseline_gdp$pool_obj$predictor_table
     write_journal_table(table4a, file.path(tables_main_dir, "Table_4A_predictor_balance.csv"))
 
+    # Placebo con mayor gap medio post (el unico, bajo el baseline, que supera
+    # a Espana; explica el p-value de 2/32). Y banda conformal 1975 del baseline.
+    top_placebo_label <- "-"
+    if (!is.null(baseline_gdp$post_avg_gaps) && nrow(baseline_gdp$post_avg_gaps) > 0) {
+      placebos_only <- baseline_gdp$post_avg_gaps |>
+        dplyr::filter(Country != treatment_identifier) |>
+        dplyr::arrange(dplyr::desc(avg_gap_post))
+      if (nrow(placebos_only) > 0) {
+        top_placebo_label <- sprintf("%s (%s PPP dollars)",
+          placebos_only$Country[1], fmt_int(placebos_only$avg_gap_post[1]))
+      }
+    }
+    terminal_band_label <- fmt_interval(
+      baseline_gdp$summary$terminal_lower, baseline_gdp$summary$terminal_upper, 0)
+
     table5 <- tibble::tibble(
       Metric = c(
         "Preferred specification",
@@ -493,6 +520,8 @@ export_journal_outputs <- function(session_dir,
         "Average post-treatment gap",
         "Average gap change",
         "One-sided rank p-value (average post gap)",
+        "Highest placebo average post-gap (unit)",
+        "1975 gap 90% conformal band",
         "Holm-adjusted p-value",
         "Post/pre-RMSPE ratio",
         "One-sided rank p-value (post/pre RMSPE ratio)"
@@ -511,12 +540,28 @@ export_journal_outputs <- function(session_dir,
         paste(fmt_int(baseline_gdp$summary$avg_post_gap), "PPP dollars"),
         fmt_pct(baseline_gdp$summary$avg_gap_change_pct, 2),
         fmt_p(baseline_gdp$summary$gap_p_value, 4),
+        top_placebo_label,
+        terminal_band_label,
         fmt_p(holm_gap_p, 4),
         fmt_num(baseline_gdp$summary$rmspe_ratio, 2),
         fmt_p(baseline_gdp$summary$rmspe_p_value, 4)
       )
     )
     write_journal_table(table5, file.path(tables_main_dir, "Table_5_baseline_fit_effect_size_and_placebo_inference.csv"))
+  }
+
+  # Serie anual observada/sintetica del outcome principal (baseline/all),
+  # tal cual se usa para las Figuras 1-2.
+  if (!is.null(baseline_gdp) && !is.null(baseline_gdp$comparison)) {
+    series_gdp <- baseline_gdp$comparison |>
+      dplyr::transmute(
+        year = as.integer(round(year)),
+        `Spain (observed)` = round(actual, 1),
+        `Synthetic Spain` = round(synthetic, 1),
+        `Gap (observed - synthetic)` = round(gap, 1)
+      ) |>
+      dplyr::arrange(year)
+    write_journal_table(series_gdp, file.path(tables_main_dir, "Table_5A_gdp_per_capita_observed_synthetic_series.csv"))
   }
 
   if (length(drop_one_summaries) > 0) {
@@ -638,6 +683,7 @@ export_journal_outputs <- function(session_dir,
   # predictores que el baseline; cambia solo la composicion del pool.
   restricted_labels <- c(
     "Full pool (baseline)" = "all",
+    "Full pool incl. US (gate disabled)" = "pool_full_no_gate",
     "Europe only" = "pool_europe",
     "Europe excl. Portugal" = "pool_europe_no_portugal",
     "Latin America only" = "pool_latam"
@@ -665,6 +711,36 @@ export_journal_outputs <- function(session_dir,
       `Top-3 donor weights` = vapply(restricted_summaries, function(x) fmt_top3_pool(x$pool_obj$donor_weights), character(1))
     )
     write_journal_table(appendix_a4, file.path(tables_appendix_dir, "Table_A4_gdp_per_capita_restricted_donor_pools.csv"))
+  }
+
+  # Figura 10: ratios contrafactual/observado (linea SCM baseline; marcadores
+  # de pools restringidos y de los escenarios PRS I/II en 1975).
+  if (!is.null(baseline_gdp) && !is.null(baseline_gdp$comparison) && length(restricted_summaries) > 1) {
+    comp10 <- baseline_gdp$comparison
+    ratio_df10 <- dplyr::tibble(year = comp10$year, ratio = comp10$synthetic / comp10$actual)
+    obs75 <- comp10$actual[comp10$year == 1975][1]
+    scm_pool_names <- c("Europe only", "Europe excl. Portugal", "Latin America only")
+    scm_markers10 <- dplyr::bind_rows(lapply(scm_pool_names, function(nm) {
+      s10 <- restricted_summaries[[nm]]
+      if (is.null(s10) || !is.finite(s10$summary$terminal_gap)) return(NULL)
+      dplyr::tibble(label = nm, ratio = (obs75 - s10$summary$terminal_gap) / obs75)
+    }))
+    # PRS (2012): niveles reales y contrafactuales de 1975 (1990 GK$),
+    # Tabla 5 (estructural: actual 8,357; Esc. II 6,586; Esc. I 5,205) y
+    # Tabla 7 (VAR: Esc. II 5,498; Esc. I 3,567).
+    prs_markers10 <- dplyr::tibble(
+      label = c("PRS II (structural)", "PRS II (VAR)", "PRS I (structural)", "PRS I (VAR)"),
+      ratio = c(6586, 5498, 5205, 3567) / 8357
+    )
+    p10 <- plot_counterfactual_ratios(
+      ratio_df = ratio_df10,
+      scm_markers = scm_markers10,
+      prs_markers = prs_markers10,
+      band_range = range(prs_markers10$ratio[1:2]),
+      treatment_year = baseline_gdp$summary$treatment_year,
+      title = "Counterfactual-to-observed real GDP per capita, 1950-1975"
+    )
+    safe_ggsave_local(file.path(figures_main_dir, "Figure_10_counterfactual_to_observed_ratios.png"), p10)
   }
 
   if (!is.null(capital_summary)) {

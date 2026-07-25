@@ -43,6 +43,8 @@ predictor_battery_enabled <- TRUE
 # Pools de donantes restringidos para gdpcap/baseline (Tabla A4):
 # Europa-only, Europa sin Portugal (donante casi-tratado: EFTA 1960) y
 # LatAm-only (America sin Canada/EEUU). Mismos predictores que el baseline.
+# Incluye ademas la variante "pool completo sin stability gate" (EEUU dentro),
+# que documenta que el gate liga por concentracion (Nicaragua), no por EEUU.
 restricted_pools_enabled <- TRUE
 europe_donor_countries <- c(
   "Albania", "Austria", "Belgium", "Cyprus", "Denmark", "Finland",
@@ -60,3 +62,23 @@ stability_min_positive_donors <- 4
 stability_drop_top1_tau_max_pct <- 25
 stability_pre_mspe_max_increase_pct <- 30
 stability_top_k_candidates <- 3
+
+# Outcomes activos del pipeline. gdpcap es el outcome principal (tablas y
+# figuras del manuscrito); rknacapita alimenta el Apendice B (Figuras B1-B2,
+# Tablas B1-B2) y hc el Apendice C (Figuras C1-C2, Tablas C1-C2). Verificado
+# contra el manuscrito v4: AMBOS outcomes auxiliares se usan (Seccion de
+# robustez y conclusiones: contraste "capital deepening si / break en capital
+# humano no" como argumento de eficiencia asignativa). No desactivar sin
+# revisar el texto; hc es ademas PREDICTOR del baseline en todo caso.
+enabled_outcomes <- c("gdpcap", "rknacapita", "hc")
+
+# Presupuesto del optimizador externo (DEoptim) para la busqueda de la matriz V.
+# MSCMT fija por defecto control=list(reltol=1e-14, steptol=500) pero deja
+# itermax en el default de DEoptim (200), que es lo que ata la busqueda. Al
+# ampliar el pool (p. ej. incluyendo Estados Unidos, isocode USA) el paisaje de
+# optimizacion se vuelve mas rugoso y 200 iteraciones no bastan: el ajuste pre
+# se dispara y deja de ser reproducible entre semillas. Subimos itermax y
+# steptol para recuperar convergencia estable; se inyectan via outer.opar en
+# cada llamada a MSCMT::mscmt. NA/<=0 -> se usa el default de MSCMT.
+deoptim_itermax <- 2000
+deoptim_steptol <- 1000

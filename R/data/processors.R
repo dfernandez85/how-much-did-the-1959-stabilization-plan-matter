@@ -4,8 +4,8 @@ prepare_pwt11_panel <- function(raw_df,
                                 code_map = region_codes,
                                 max_year = NULL) {
   # Normaliza nombres ANTES de filtrar: PWT usa nombres oficiales largos para
-  # Bolivia/Venezuela y "Turkiye" (via isocode TUR, evitando no-ASCII); si se
-  # filtra primero, estos paises quedan silenciosamente fuera del pool.
+  # Bolivia/Venezuela, "Turkiye" (isocode TUR) y "United States" (isocode USA);
+  # si se filtra primero, estos paises quedan silenciosamente fuera del pool.
   df <- raw_df |>
     dplyr::mutate(
       country = as.character(country),
@@ -14,7 +14,8 @@ prepare_pwt11_panel <- function(raw_df,
         c("Bolivia (Plurinational State of)", "Venezuela (Bolivarian Republic of)"),
         c("Bolivia", "Venezuela")
       ),
-      country = dplyr::if_else(isocode == "TUR", "Turkey", country)
+      country = dplyr::if_else(isocode == "TUR", "Turkey", country),
+      country = dplyr::if_else(isocode == "USA", "United States of America", country)
     )
 
   if (!is.null(countries)) {

@@ -7,6 +7,19 @@ run_synthetic_control <- function(session_dir) {
   write_working_outputs <- FALSE
   save_table_jpg_impl <- get("save_table_jpg", mode = "function")
 
+  # Opciones del optimizador externo (DEoptim) inyectadas en cada mscmt().
+  # Amplia el presupuesto de iteraciones para asegurar convergencia estable
+  # con pools grandes (ver settings.R: deoptim_itermax / deoptim_steptol).
+  build_deoptim_opar <- function() {
+    opar <- list()
+    itmax <- if (exists("deoptim_itermax", inherits = TRUE)) suppressWarnings(as.integer(deoptim_itermax)) else NA_integer_
+    stept <- if (exists("deoptim_steptol", inherits = TRUE)) suppressWarnings(as.integer(deoptim_steptol)) else NA_integer_
+    if (length(itmax) == 1 && is.finite(itmax) && itmax > 0) opar$itermax <- itmax
+    if (length(stept) == 1 && is.finite(stept) && stept > 0) opar$steptol <- stept
+    opar
+  }
+  deoptim_opar <- build_deoptim_opar()
+
   safe_ggsave <- function(path, plot_obj, width = 20, height = 11, units = "cm", dpi = 600) {
     if (!isTRUE(write_working_outputs)) return(invisible(NULL))
     tryCatch(
@@ -695,13 +708,19 @@ run_synthetic_control <- function(session_dir) {
     )
   )
 
+  # Filtro de configuracion: outcomes activos segun settings.R (enabled_outcomes).
+  # OUTCOME_ONLY (variable de entorno) se aplica despues como override ad hoc.
+  if (exists("enabled_outcomes", inherits = TRUE) && length(enabled_outcomes) > 0) {
+    outcomes <- Filter(function(o) o$id %in% as.character(enabled_outcomes), outcomes)
+  }
+
   outcome_env <- Sys.getenv("OUTCOME_ONLY", "")
   if (nzchar(outcome_env)) {
     wanted_outcomes <- trimws(strsplit(outcome_env, ",")[[1]])
     outcomes <- Filter(function(o) o$id %in% wanted_outcomes, outcomes)
   }
   if (length(outcomes) == 0) {
-    stop("No outcomes selected after applying OUTCOME_ONLY.")
+    stop("No outcomes selected after applying enabled_outcomes / OUTCOME_ONLY.")
   }
 
   env_flags <- Sys.getenv(c("OUTCOME_ONLY", "SPEC_ONLY", "SKIP_DROP_ONE", "placebo_mspe_ratio_cutoff"))
@@ -847,6 +866,7 @@ run_synthetic_control <- function(session_dir) {
             agg.fns = agg_fns,
             seed = 1,
             outer.optim = "DEoptim",
+            outer.opar = deoptim_opar,
             verbose = FALSE
           )
         )
@@ -967,7 +987,8 @@ run_synthetic_control <- function(session_dir) {
             cl = cl,
             placebo = TRUE,
             seed = 1,
-            outer.optim = "DEoptim"
+            outer.optim = "DEoptim",
+            outer.opar = deoptim_opar
           )
         )
         if (!is.null(cl)) parallel::stopCluster(cl)
@@ -1709,6 +1730,15 @@ run_synthetic_control <- function(session_dir) {
           pool_results[[rp_label]] <- run_spec_pool(
             pool_label = rp_label,
             donor_filter = restricted_defs[[rp_label]]
+          )
+        }
+        # Variante "pool completo sin gate": los 36 donantes (EEUU incluido),
+        # sin la seleccion del stability gate. Documenta que el gate liga por
+        # concentracion del donante principal, no por EEUU (peso ~0.06).
+        if (is.null(pool_results[["pool_full_no_gate"]])) {
+          pool_results[["pool_full_no_gate"]] <- run_spec_pool(
+            pool_label = "pool_full_no_gate",
+            donor_filter = NULL
           )
         }
       }
