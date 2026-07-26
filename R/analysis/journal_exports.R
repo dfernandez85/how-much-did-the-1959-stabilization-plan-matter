@@ -3,7 +3,8 @@ export_journal_outputs <- function(session_dir,
                                    tables_dir,
                                    spec_outputs,
                                    specs,
-                                   treatment_identifier = "Spain") {
+                                   treatment_identifier = "Spain",
+                                   stability_selection = NULL) {
   figures_main_dir <- file.path(plots_dir, "main")
   figures_appendix_dir <- file.path(plots_dir, "appendix")
   tables_main_dir <- file.path(tables_dir, "main")
@@ -185,6 +186,27 @@ export_journal_outputs <- function(session_dir,
     format(round(x, digits), nsmall = digits, trim = TRUE, scientific = FALSE)
   }
 
+  # Como fmt_num pero con separador de millares, para magnitudes grandes que
+  # el manuscrito imprime con coma (p. ej. el MSPE pre-tratamiento).
+  fmt_num_big <- function(x, digits = 2) {
+    if (!length(x) || is.na(x) || !is.finite(x)) return(NA_character_)
+    format(round(x, digits), nsmall = digits, big.mark = ",", trim = TRUE, scientific = FALSE)
+  }
+
+  # "rank 1 of 31": posicion del tratado en la distribucion placebo.
+  fmt_rank <- function(rank, units) {
+    if (!length(rank) || is.na(rank) || !length(units) || is.na(units)) return(NA_character_)
+    sprintf("rank %d of %d", as.integer(rank), as.integer(units))
+  }
+
+  fmt_p_rank <- function(p, rank, units, digits = 4) {
+    p_txt <- fmt_p(p, digits)
+    if (is.na(p_txt)) return(NA_character_)
+    rank_txt <- fmt_rank(rank, units)
+    if (is.na(rank_txt)) return(p_txt)
+    sprintf("%s (%s)", p_txt, rank_txt)
+  }
+
   fmt_pct <- function(x, digits = 2) {
     if (!length(x) || is.na(x) || !is.finite(x)) return(NA_character_)
     sprintf("%0.*f%%", digits, x)
@@ -195,9 +217,23 @@ export_journal_outputs <- function(session_dir,
     sprintf("%0.*f", digits, x)
   }
 
+  # Los intervalos del manuscrito llevan separador de millares.
   fmt_interval <- function(lower, upper, digits = 0) {
     if (any(!is.finite(c(lower, upper)))) return(NA_character_)
-    sprintf("[%s; %s]", fmt_num(lower, digits), fmt_num(upper, digits))
+    sprintf("[%s; %s]", fmt_num_big(lower, digits), fmt_num_big(upper, digits))
+  }
+
+  # PWT nombra a Estados Unidos con la forma larga; las tablas del manuscrito
+  # lo imprimen abreviado.
+  pretty_country <- function(x) {
+    ifelse(x == "United States of America", "United States", x)
+  }
+
+  # "Nicaragua (0.37); Austria (0.33); Turkey (0.14)"
+  fmt_top3_weights <- function(dw, n_max = 3L) {
+    if (is.null(dw) || nrow(dw) == 0) return("-")
+    n <- min(as.integer(n_max), nrow(dw))
+    paste(sprintf("%s (%.2f)", pretty_country(dw$Country[seq_len(n)]), dw$Weight[seq_len(n)]), collapse = "; ")
   }
 
   fmt_top_donor <- function(donor, weight, digits = 3) {
@@ -227,16 +263,35 @@ export_journal_outputs <- function(session_dir,
     treated_avg_gap <- NA_real_
     p_gap <- NA_real_
     placebos_retained <- NA_integer_
+    avg_lower <- NA_real_
+    avg_upper <- NA_real_
+    gap_rank <- NA_integer_
+    gap_rank_units <- NA_integer_
     if (!is.null(post_avg_gaps) && nrow(post_avg_gaps) > 0) {
       treated_avg_gap <- post_avg_gaps$avg_gap_post[post_avg_gaps$Country == treatment_identifier][1]
       placebo_gaps <- post_avg_gaps$avg_gap_post[post_avg_gaps$Country != treatment_identifier]
       p_gap <- rank_pvalue_local(treated_avg_gap, placebo_gaps, direction = "greater")
       placebos_retained <- length(placebo_gaps)
+      # Intervalo de permutacion al 90% para el gap medio post: invierte el
+      # test de permutacion, es decir recoge los desplazamientos del efecto
+      # que la distribucion placebo no rechazaria (Firpo-Possebom 2018).
+      # Es el analogo, sobre el promedio del periodo, de la banda conformal
+      # anual que da terminal_lower/terminal_upper para 1975.
+      finite_placebos <- placebo_gaps[is.finite(placebo_gaps)]
+      if (is.finite(treated_avg_gap) && length(finite_placebos) > 0) {
+        qs <- stats::quantile(finite_placebos, probs = c(0.05, 0.95), na.rm = TRUE, names = FALSE)
+        avg_lower <- treated_avg_gap - qs[2]
+        avg_upper <- treated_avg_gap - qs[1]
+        gap_rank_units <- length(finite_placebos) + 1L
+        gap_rank <- as.integer(sum(finite_placebos >= treated_avg_gap) + 1L)
+      }
     }
 
     p_rmspe <- NA_real_
     rmspe_ratio <- NA_real_
     pre_mspe <- NA_real_
+    rmspe_rank <- NA_integer_
+    rmspe_rank_units <- NA_integer_
     if (!is.null(fit_df) && nrow(fit_df) > 0) {
       treated_fit <- dplyr::filter(fit_df, Country == treatment_identifier)
       rmspe_ratio <- treated_fit$rmspe_ratio[1]
@@ -245,6 +300,11 @@ export_journal_outputs <- function(session_dir,
       p_rmspe <- rank_pvalue_local(rmspe_ratio, placebo_ratios, direction = "greater")
       if (is.na(placebos_retained)) {
         placebos_retained <- length(placebo_ratios)
+      }
+      finite_ratios <- placebo_ratios[is.finite(placebo_ratios)]
+      if (is.finite(rmspe_ratio) && length(finite_ratios) > 0) {
+        rmspe_rank_units <- length(finite_ratios) + 1L
+        rmspe_rank <- as.integer(sum(finite_ratios >= rmspe_ratio) + 1L)
       }
     }
 
@@ -314,10 +374,16 @@ export_journal_outputs <- function(session_dir,
         top_weight = top_weight,
         pre_mspe = pre_mspe,
         avg_post_gap = treated_avg_gap,
+        avg_lower = avg_lower,
+        avg_upper = avg_upper,
         avg_gap_change_pct = avg_gap_change_pct,
         gap_p_value = p_gap,
+        gap_rank = gap_rank,
+        gap_rank_units = gap_rank_units,
         rmspe_ratio = rmspe_ratio,
         rmspe_p_value = p_rmspe,
+        rmspe_rank = rmspe_rank,
+        rmspe_rank_units = rmspe_rank_units,
         terminal_year = spec$post_window[2],
         terminal_gap = terminal_gap,
         terminal_lower = terminal_lower,
@@ -352,6 +418,32 @@ export_journal_outputs <- function(session_dir,
   if (!is.null(baseline_gdp)) {
     pvals <- c(baseline_gdp$summary$gap_p_value, baseline_gdp$summary$rmspe_p_value)
     holm_gap_p <- stats::p.adjust(pvals, method = "holm")[1]
+  }
+
+  donor_phrase <- function(x) {
+    p <- pretty_country(x)
+    if (identical(p, "United States")) "the United States" else p
+  }
+
+  # La etiqueta de la especificacion preferida la fija la decision registrada
+  # por el stability gate, no una constante escrita a mano.
+  gate_rows_gdp <- NULL
+  gate_selected <- NULL
+  if (!is.null(stability_selection) && nrow(stability_selection) > 0) {
+    gate_rows_gdp <- stability_selection |>
+      dplyr::filter(outcome == "gdpcap", spec == "baseline")
+    sel_rows <- dplyr::filter(gate_rows_gdp, selected %in% TRUE)
+    if (nrow(sel_rows) > 0) gate_selected <- sel_rows[nrow(sel_rows), ]
+  }
+  preferred_spec_label <- "Baseline / all (selected specification)"
+  if (!is.null(gate_selected)) {
+    dropped <- gate_selected$dropped_donor[1]
+    preferred_spec_label <- if (is.na(dropped) || !nzchar(dropped)) {
+      "Baseline / all (accepted by the ex ante stability gate without exclusions)"
+    } else {
+      sprintf("Baseline / all (selected by the ex ante stability gate after excluding %s)",
+              donor_phrase(dropped))
+    }
   }
 
   if (!is.null(baseline_gdp)) {
@@ -483,12 +575,12 @@ export_journal_outputs <- function(session_dir,
     safe_ggsave_local(file.path(figures_appendix_dir, "Figure_C2_human_capital_index_rmspe_ratio_ranking.png"), pC2)
   }
   if (!is.null(baseline_gdp)) {
-    table4 <- baseline_gdp$pool_obj$donor_weights |>
+    table3 <- baseline_gdp$pool_obj$donor_weights |>
       dplyr::mutate(Weight = round(Weight, 4))
-    write_journal_table(table4, file.path(tables_main_dir, "Table_4_baseline_donor_weights.csv"))
+    write_journal_table(table3, file.path(tables_main_dir, "Table_3_baseline_donor_weights.csv"))
 
-    table4a <- baseline_gdp$pool_obj$predictor_table
-    write_journal_table(table4a, file.path(tables_main_dir, "Table_4A_predictor_balance.csv"))
+    table4 <- baseline_gdp$pool_obj$predictor_table
+    write_journal_table(table4, file.path(tables_main_dir, "Table_4_predictor_balance.csv"))
 
     # Placebo con mayor gap medio post (el unico, bajo el baseline, que supera
     # a Espana; explica el p-value de 2/32). Y banda conformal 1975 del baseline.
@@ -498,53 +590,68 @@ export_journal_outputs <- function(session_dir,
         dplyr::filter(Country != treatment_identifier) |>
         dplyr::arrange(dplyr::desc(avg_gap_post))
       if (nrow(placebos_only) > 0) {
-        top_placebo_label <- sprintf("%s (%s PPP dollars)",
+        top_placebo_label <- sprintf("%s (%s)",
           placebos_only$Country[1], fmt_int(placebos_only$avg_gap_post[1]))
       }
     }
     terminal_band_label <- fmt_interval(
       baseline_gdp$summary$terminal_lower, baseline_gdp$summary$terminal_upper, 0)
+    if (!is.na(terminal_band_label) &&
+        is.finite(baseline_gdp$summary$terminal_lower) &&
+        baseline_gdp$summary$terminal_lower > 0) {
+      terminal_band_label <- paste0(terminal_band_label, " — excludes zero")
+    }
+    avg_band_label <- fmt_interval(
+      baseline_gdp$summary$avg_lower, baseline_gdp$summary$avg_upper, 0)
+
+    units_label <- "constant-2017 U.S. dollars per capita"
+    rmspe_cutoff_label <- if (exists("placebo_rmspe_ratio_cutoff", inherits = TRUE) &&
+                              is.finite(placebo_rmspe_ratio_cutoff)) {
+      sprintf("Placebo units retained after %g× RMSPE filter", placebo_rmspe_ratio_cutoff)
+    } else {
+      "Placebo units retained after RMSPE filter"
+    }
 
     table5 <- tibble::tibble(
       Metric = c(
         "Preferred specification",
-        "Treatment year",
+        "Intervention / first treated year",
         "Pre-treatment window",
         "Post-treatment window",
         "Eligible placebo units after coverage filters",
-        "Placebo units retained after RMSPE filter",
-        "Positive donor weights",
-        "Effective number of donors",
+        rmspe_cutoff_label,
+        "Positive donor weights / effective donors",
         "Largest donor weight",
-        "Pre-treatment fit statistic (MSPE)",
-        "Average post-treatment gap",
-        "Average gap change",
-        "One-sided rank p-value (average post gap)",
-        "Highest placebo average post-gap (unit)",
-        "1975 gap 90% conformal band",
-        "Holm-adjusted p-value",
+        "Pre-treatment fit (MSPE)",
+        sprintf("Average post-treatment gap (%d–%d)", baseline_gdp$summary$post_window[1], baseline_gdp$summary$post_window[2]),
+        sprintf("Terminal gap (%d)", baseline_gdp$summary$terminal_year),
+        sprintf("90%% placebo-permutation interval, %d gap", baseline_gdp$summary$terminal_year),
+        "90% placebo-permutation interval, average post-treatment gap",
+        "Highest placebo average post-treatment gap",
         "Post/pre-RMSPE ratio",
-        "One-sided rank p-value (post/pre RMSPE ratio)"
+        "One-sided rank p-value (post/pre-RMSPE ratio)",
+        "One-sided rank p-value (average post gap)",
+        "Holm-adjusted p-value (two-metric family)"
       ),
       Value = c(
-        "baseline / all (selected specification)",
-        as.character(baseline_gdp$summary$treatment_year),
-        sprintf("%s-%s (%s annual observations)", baseline_gdp$summary$pre_window[1], baseline_gdp$summary$pre_window[2], baseline_gdp$summary$pre_window[2] - baseline_gdp$summary$pre_window[1] + 1),
-        sprintf("%s-%s (%s annual observations)", baseline_gdp$summary$post_window[1], baseline_gdp$summary$post_window[2], baseline_gdp$summary$post_window[2] - baseline_gdp$summary$post_window[1] + 1),
+        preferred_spec_label,
+        sprintf("%d Plan / %d", baseline_gdp$summary$treatment_year - 1, baseline_gdp$summary$treatment_year),
+        sprintf("%d–%d (%d annual observations)", baseline_gdp$summary$pre_window[1], baseline_gdp$summary$pre_window[2], baseline_gdp$summary$pre_window[2] - baseline_gdp$summary$pre_window[1] + 1),
+        sprintf("%d–%d (%d annual observations)", baseline_gdp$summary$post_window[1], baseline_gdp$summary$post_window[2], baseline_gdp$summary$post_window[2] - baseline_gdp$summary$post_window[1] + 1),
         fmt_int(baseline_gdp$summary$eligible_placebos),
         fmt_int(baseline_gdp$summary$retained_placebos),
-        fmt_int(baseline_gdp$summary$positive_donors),
-        fmt_num(baseline_gdp$summary$n_eff, 2),
+        sprintf("%s / %s", fmt_int(baseline_gdp$summary$positive_donors), fmt_num(baseline_gdp$summary$n_eff, 2)),
         fmt_top_donor(baseline_gdp$summary$top_donor, baseline_gdp$summary$top_weight, 4),
-        fmt_num(baseline_gdp$summary$pre_mspe, 2),
-        paste(fmt_int(baseline_gdp$summary$avg_post_gap), "PPP dollars"),
-        fmt_pct(baseline_gdp$summary$avg_gap_change_pct, 2),
-        fmt_p(baseline_gdp$summary$gap_p_value, 4),
-        top_placebo_label,
+        fmt_num_big(baseline_gdp$summary$pre_mspe, 2),
+        paste(fmt_int(baseline_gdp$summary$avg_post_gap), units_label),
+        paste(fmt_int(baseline_gdp$summary$terminal_gap), units_label),
         terminal_band_label,
-        fmt_p(holm_gap_p, 4),
+        avg_band_label,
+        top_placebo_label,
         fmt_num(baseline_gdp$summary$rmspe_ratio, 2),
-        fmt_p(baseline_gdp$summary$rmspe_p_value, 4)
+        fmt_p_rank(baseline_gdp$summary$rmspe_p_value, baseline_gdp$summary$rmspe_rank, baseline_gdp$summary$rmspe_rank_units, 4),
+        fmt_p_rank(baseline_gdp$summary$gap_p_value, baseline_gdp$summary$gap_rank, baseline_gdp$summary$gap_rank_units, 4),
+        fmt_p(holm_gap_p, 4)
       )
     )
     write_journal_table(table5, file.path(tables_main_dir, "Table_5_baseline_fit_effect_size_and_placebo_inference.csv"))
@@ -567,35 +674,32 @@ export_journal_outputs <- function(session_dir,
   if (length(drop_one_summaries) > 0) {
     drop_list <- unname(drop_one_summaries)
     table6 <- tibble::tibble(
-      `Excluded donor` = names(drop_one_summaries),
-      `Included donors` = vapply(drop_list, function(x) fmt_int(x$summary$included_donors), character(1)),
-      `Avg. post-gap (placebo p-value)` = vapply(drop_list, function(x) sprintf("%s (p=%s)", fmt_int(x$summary$avg_post_gap), fmt_p(x$summary$gap_p_value, 3)), character(1)),
+      `Excluded donor` = pretty_country(names(drop_one_summaries)),
+      `Avg. post-gap (p-value)` = vapply(drop_list, function(x) sprintf("%s (%s)", fmt_int(x$summary$avg_post_gap), fmt_p(x$summary$gap_p_value, 3)), character(1)),
+      `RMSPE ratio (p-value)` = vapply(drop_list, function(x) sprintf("%s (%s)", fmt_num(x$summary$rmspe_ratio, 2), fmt_p(x$summary$rmspe_p_value, 3)), character(1)),
       `1975 gap` = vapply(drop_list, function(x) fmt_int(x$summary$terminal_gap), character(1)),
-      `1975 conformal band` = vapply(drop_list, function(x) fmt_interval(x$summary$terminal_lower, x$summary$terminal_upper, 0), character(1)),
-      `Band above zero` = vapply(drop_list, function(x) ifelse(is.finite(x$summary$terminal_lower) && x$summary$terminal_lower > 0, "Yes", "No"), character(1))
+      `90% interval at 1975` = vapply(drop_list, function(x) fmt_interval(x$summary$terminal_lower, x$summary$terminal_upper, 0), character(1)),
+      `Positive donors` = vapply(drop_list, function(x) fmt_int(x$summary$positive_donors), character(1))
     )
     write_journal_table(table6, file.path(tables_main_dir, "Table_6_leave_one_donor_out_robustness.csv"))
   }
 
   if (!is.null(treat_1970) && !is.null(treat_1980)) {
-    table7 <- tibble::tibble(
+    pseudo_list <- list(treat_1970, treat_1980)
+    donors_excluded <- function(s) {
+      exc <- s$summary$excluded_countries
+      sprintf("%s (%s)", fmt_int(s$summary$included_donors),
+              if (length(exc) == 0) "none" else paste(exc, collapse = ", "))
+    }
+    table9 <- tibble::tibble(
       `Pseudo-treatment` = c("1970", "1980"),
-      `Included donors` = c(fmt_int(treat_1970$summary$included_donors), fmt_int(treat_1980$summary$included_donors)),
-      `Excluded countries` = c(
-        if (length(treat_1970$summary$excluded_countries) == 0) "None" else paste(treat_1970$summary$excluded_countries, collapse = ", "),
-        if (length(treat_1980$summary$excluded_countries) == 0) "None" else paste(treat_1980$summary$excluded_countries, collapse = ", ")
-      ),
-      `Pre-MSPE` = c(fmt_int(treat_1970$summary$pre_mspe), fmt_int(treat_1980$summary$pre_mspe)),
-      `Avg. post-gap (placebo p-value)` = c(
-        sprintf("%s (p=%s)", fmt_int(treat_1970$summary$avg_post_gap), fmt_p(treat_1970$summary$gap_p_value, 3)),
-        sprintf("%s (p=%s)", fmt_int(treat_1980$summary$avg_post_gap), fmt_p(treat_1980$summary$gap_p_value, 3))
-      ),
-      `Terminal result (year: gap [band])` = c(
-        sprintf("%s: %s %s", treat_1970$summary$terminal_year, fmt_int(treat_1970$summary$terminal_gap), fmt_interval(treat_1970$summary$terminal_lower, treat_1970$summary$terminal_upper, 0)),
-        sprintf("%s: %s %s", treat_1980$summary$terminal_year, fmt_int(treat_1980$summary$terminal_gap), fmt_interval(treat_1980$summary$terminal_lower, treat_1980$summary$terminal_upper, 0))
-      )
+      `Donors (excluded)` = vapply(pseudo_list, donors_excluded, character(1)),
+      `Pre-MSPE` = vapply(pseudo_list, function(s) fmt_int(s$summary$pre_mspe), character(1)),
+      `Avg. post-gap (p-value)` = vapply(pseudo_list, function(s) sprintf("%s (%s)", fmt_int(s$summary$avg_post_gap), fmt_p(s$summary$gap_p_value, 3)), character(1)),
+      `RMSPE ratio (p-value)` = vapply(pseudo_list, function(s) sprintf("%s (%s)", fmt_num(s$summary$rmspe_ratio, 2), fmt_p(s$summary$rmspe_p_value, 3)), character(1)),
+      `Terminal gap [90% interval]` = vapply(pseudo_list, function(s) sprintf("%s: %s %s", s$summary$terminal_year, fmt_int(s$summary$terminal_gap), fmt_interval(s$summary$terminal_lower, s$summary$terminal_upper, 0)), character(1))
     )
-    write_journal_table(table7, file.path(tables_main_dir, "Table_7_pseudo_treatment_dates.csv"))
+    write_journal_table(table9, file.path(tables_main_dir, "Table_9_pseudo_treatment_dates.csv"))
 
     appendix_d1 <- tibble::tibble(
       `Pseudo-treatment` = c("1970", "1980"),
@@ -647,7 +751,7 @@ export_journal_outputs <- function(session_dir,
     write_journal_table(appendix_a2, file.path(tables_appendix_dir, "Table_A2_gdp_per_capita_donor_weights.csv"))
   }
 
-  # Tabla A3: robustez al set de predictores (Ferman-Pinto-Possebom).
+  # Tabla 7: robustez al set de predictores (Ferman-Pinto-Possebom).
   # Mismo pool que el baseline; solo cambia el set de predictores.
   predspec_labels <- c(
     "Outcome mean + covariates (baseline)" = "all",
@@ -661,25 +765,20 @@ export_journal_outputs <- function(session_dir,
     if (!is.null(ps)) predspec_summaries[[names(predspec_labels)[i]]] <- ps
   }
   if (length(predspec_summaries) > 1) {
-    fmt_top3_weights <- function(dw) {
-      if (is.null(dw) || nrow(dw) == 0) return("-")
-      n <- min(3L, nrow(dw))
-      paste(sprintf("%s (%.2f)", dw$Country[seq_len(n)], dw$Weight[seq_len(n)]), collapse = "; ")
-    }
-    appendix_a3 <- tibble::tibble(
+    table7 <- tibble::tibble(
       `Predictor set` = names(predspec_summaries),
       `Pre-RMSPE` = vapply(predspec_summaries, function(x) fmt_num(sqrt(x$summary$pre_mspe), 1), character(1)),
       `Avg. post-gap` = vapply(predspec_summaries, function(x) fmt_int(x$summary$avg_post_gap), character(1)),
-      `Terminal gap (1975)` = vapply(predspec_summaries, function(x) fmt_int(x$summary$terminal_gap), character(1)),
-      `Gap p-value` = vapply(predspec_summaries, function(x) fmt_p(x$summary$gap_p_value, 3), character(1)),
+      `1975 gap` = vapply(predspec_summaries, function(x) fmt_int(x$summary$terminal_gap), character(1)),
+      `Gap p` = vapply(predspec_summaries, function(x) fmt_p(x$summary$gap_p_value, 3), character(1)),
       `RMSPE ratio` = vapply(predspec_summaries, function(x) fmt_num(x$summary$rmspe_ratio, 2), character(1)),
-      `RMSPE p-value` = vapply(predspec_summaries, function(x) fmt_p(x$summary$rmspe_p_value, 3), character(1)),
+      `RMSPE p` = vapply(predspec_summaries, function(x) fmt_p(x$summary$rmspe_p_value, 3), character(1)),
       `Top-3 donor weights` = vapply(predspec_summaries, function(x) fmt_top3_weights(x$pool_obj$donor_weights), character(1))
     )
-    write_journal_table(appendix_a3, file.path(tables_appendix_dir, "Table_A3_gdp_per_capita_predictor_set_robustness.csv"))
+    write_journal_table(table7, file.path(tables_main_dir, "Table_7_predictor_set_robustness.csv"))
   }
 
-  # Tabla A4: pools de donantes restringidos (Europa / LatAm), mismos
+  # Tabla 8: pools de donantes restringidos (Europa / LatAm), mismos
   # predictores que el baseline; cambia solo la composicion del pool.
   restricted_labels <- c(
     "Full pool (baseline)" = "all",
@@ -694,23 +793,113 @@ export_journal_outputs <- function(session_dir,
     if (!is.null(rs)) restricted_summaries[[names(restricted_labels)[i]]] <- rs
   }
   if (length(restricted_summaries) > 1) {
-    fmt_top3_pool <- function(dw) {
-      if (is.null(dw) || nrow(dw) == 0) return("-")
-      n <- min(3L, nrow(dw))
-      paste(sprintf("%s (%.2f)", dw$Country[seq_len(n)], dw$Weight[seq_len(n)]), collapse = "; ")
-    }
-    appendix_a4 <- tibble::tibble(
+    table8 <- tibble::tibble(
       `Donor pool` = names(restricted_summaries),
       `Donors` = vapply(restricted_summaries, function(x) fmt_int(x$summary$included_donors), character(1)),
       `Pre-RMSPE` = vapply(restricted_summaries, function(x) fmt_num(sqrt(x$summary$pre_mspe), 1), character(1)),
       `Avg. post-gap` = vapply(restricted_summaries, function(x) fmt_int(x$summary$avg_post_gap), character(1)),
-      `Terminal gap (1975)` = vapply(restricted_summaries, function(x) fmt_int(x$summary$terminal_gap), character(1)),
-      `Gap p-value` = vapply(restricted_summaries, function(x) fmt_p(x$summary$gap_p_value, 3), character(1)),
+      `1975 gap` = vapply(restricted_summaries, function(x) fmt_int(x$summary$terminal_gap), character(1)),
+      `Gap p` = vapply(restricted_summaries, function(x) fmt_p(x$summary$gap_p_value, 3), character(1)),
       `RMSPE ratio` = vapply(restricted_summaries, function(x) fmt_num(x$summary$rmspe_ratio, 2), character(1)),
-      `RMSPE p-value` = vapply(restricted_summaries, function(x) fmt_p(x$summary$rmspe_p_value, 3), character(1)),
-      `Top-3 donor weights` = vapply(restricted_summaries, function(x) fmt_top3_pool(x$pool_obj$donor_weights), character(1))
+      `RMSPE p` = vapply(restricted_summaries, function(x) fmt_p(x$summary$rmspe_p_value, 3), character(1)),
+      `Top-3 donor weights` = vapply(restricted_summaries, function(x) fmt_top3_weights(x$pool_obj$donor_weights), character(1))
     )
-    write_journal_table(appendix_a4, file.path(tables_appendix_dir, "Table_A4_gdp_per_capita_restricted_donor_pools.csv"))
+    write_journal_table(table8, file.path(tables_main_dir, "Table_8_restricted_donor_pools.csv"))
+  }
+
+  # Tabla A3: sensibilidad de la seleccion del stability gate al umbral de
+  # concentracion. No re-estima nada: reevalua los candidatos que el gate ya
+  # estimo (pool completo sin restricciones y las exclusiones drop_top-k) bajo
+  # umbrales alternativos, de modo que la fila del umbral preinscrito es
+  # exactamente la regla del baseline. La ultima fila es el pool completo con
+  # el gate desactivado, que si tiene inferencia porque se estima con placebos.
+  if (!is.null(gate_rows_gdp) && nrow(gate_rows_gdp) > 0) {
+    neff_min_v <- if (exists("stability_neff_min", inherits = TRUE)) as.numeric(stability_neff_min) else 3
+    min_pos_v <- if (exists("stability_min_positive_donors", inherits = TRUE)) as.numeric(stability_min_positive_donors) else 4
+    tau_max_v <- if (exists("stability_drop_top1_tau_max_pct", inherits = TRUE)) as.numeric(stability_drop_top1_tau_max_pct) else 25
+    preinscribed <- if (exists("stability_top_weight_max", inherits = TRUE)) as.numeric(stability_top_weight_max) else 0.45
+    grid_v <- if (exists("stability_top_weight_sensitivity", inherits = TRUE)) {
+      sort(unique(c(as.numeric(stability_top_weight_sensitivity), preinscribed)))
+    } else {
+      preinscribed
+    }
+
+    unc_row <- dplyr::filter(gate_rows_gdp, candidate_source == "all_unconstrained")
+    cand_rows <- dplyr::filter(gate_rows_gdp, candidate_source != "all_unconstrained")
+    pass_common <- function(r, t) {
+      is.finite(r$top_weight) && r$top_weight <= t &&
+        is.finite(r$n_eff) && r$n_eff >= neff_min_v &&
+        is.finite(r$n_positive_donors) && r$n_positive_donors >= min_pos_v
+    }
+    select_at <- function(t) {
+      if (nrow(unc_row) > 0) {
+        r <- unc_row[1, ]
+        if (pass_common(r, t) && is.finite(r$tau_change_pct) && r$tau_change_pct <= tau_max_v) return(r)
+      }
+      if (nrow(cand_rows) == 0) return(NULL)
+      keep <- vapply(seq_len(nrow(cand_rows)), function(i) {
+        r <- cand_rows[i, ]
+        cap_ok <- !is.finite(r$pre_mspe_max_allowed) ||
+          (is.finite(r$treated_pre_mspe) && r$treated_pre_mspe <= r$pre_mspe_max_allowed)
+        pass_common(r, t) && cap_ok
+      }, logical(1))
+      elig <- cand_rows[keep, ]
+      if (nrow(elig) == 0) return(NULL)
+      idx <- which.min(elig$treated_pre_mspe)
+      if (length(idx) != 1) return(NULL)
+      elig[idx, ]
+    }
+
+    # Inferencia completa solo cuando el pool seleccionado coincide con uno
+    # estimado con placebos: el baseline del gate o el pool sin gate.
+    no_gate_summary <- restricted_summaries[["Full pool incl. US (gate disabled)"]]
+    baseline_dropped <- if (!is.null(gate_selected)) gate_selected$dropped_donor[1] else NA_character_
+    inference_for <- function(row) {
+      if (is.null(row)) return(NULL)
+      d <- row$dropped_donor[1]
+      if (is.na(d) || !nzchar(d)) return(no_gate_summary)
+      if (!is.na(baseline_dropped) && identical(d, baseline_dropped)) return(baseline_gdp)
+      NULL
+    }
+    pool_label_for <- function(row) {
+      if (is.null(row)) return("None admissible")
+      d <- row$dropped_donor[1]
+      if (is.na(d) || !nzchar(d)) return("Full pool, no exclusions")
+      sprintf("Full pool excl. %s", donor_phrase(d))
+    }
+
+    grid_labels <- vapply(grid_v, function(t) {
+      if (isTRUE(all.equal(t, preinscribed))) sprintf("%.2f (preinscribed)", t) else sprintf("%.2f", t)
+    }, character(1))
+    sel_rows_list <- lapply(grid_v, select_at)
+
+    # Fila final: gate desactivado (pool completo, EEUU dentro).
+    disabled_row <- if (nrow(unc_row) > 0) unc_row[1, ] else NULL
+    disabled_label <- "Gate disabled"
+
+    rows_all <- c(sel_rows_list, list(disabled_row))
+    labels_all <- c(grid_labels, disabled_label)
+    infer_all <- c(lapply(sel_rows_list, inference_for), list(no_gate_summary))
+    pool_all <- c(vapply(sel_rows_list, pool_label_for, character(1)),
+                  if (is.null(disabled_row)) "None" else "Full pool, no exclusions")
+
+    dash <- function(x) if (is.na(x)) "-" else x
+    appendix_a3 <- tibble::tibble(
+      `Concentration threshold` = labels_all,
+      `Selected pool` = pool_all,
+      `Largest donor weight` = vapply(seq_along(rows_all), function(i) {
+        r <- rows_all[[i]]
+        if (is.null(r)) return("-")
+        dash(fmt_top_donor(pretty_country(r$top_donor[1]), r$top_weight[1], 3))
+      }, character(1)),
+      `Effective donors` = vapply(rows_all, function(r) if (is.null(r)) "-" else dash(fmt_num(r$n_eff[1], 2)), character(1)),
+      `Positive donors` = vapply(rows_all, function(r) if (is.null(r)) "-" else dash(fmt_int(r$n_positive_donors[1])), character(1)),
+      `Pre-RMSPE` = vapply(rows_all, function(r) if (is.null(r)) "-" else dash(fmt_num(sqrt(r$treated_pre_mspe[1]), 1)), character(1)),
+      `Avg. post-gap` = vapply(rows_all, function(r) if (is.null(r)) "-" else dash(fmt_int(r$treated_tau_post[1])), character(1)),
+      `1975 gap` = vapply(infer_all, function(s) if (is.null(s)) "-" else dash(fmt_int(s$summary$terminal_gap)), character(1)),
+      `Gap p` = vapply(infer_all, function(s) if (is.null(s)) "-" else dash(fmt_p(s$summary$gap_p_value, 3)), character(1))
+    )
+    write_journal_table(appendix_a3, file.path(tables_appendix_dir, "Table_A3_stability_gate_threshold_sensitivity.csv"))
   }
 
   # Figura 10: ratios contrafactual/observado (linea SCM baseline; marcadores
@@ -741,6 +930,82 @@ export_journal_outputs <- function(session_dir,
       title = "Counterfactual-to-observed real GDP per capita, 1950-1975"
     )
     safe_ggsave_local(file.path(figures_main_dir, "Figure_10_counterfactual_to_observed_ratios.png"), p10)
+
+    # Tabla 10: los mismos ratios de la Figura 10 en formato de tabla. Las
+    # filas SCM salen de la sesion; las filas PRS son los niveles publicados
+    # (constantes de literatura declaradas arriba), no estimaciones propias.
+    prs_meta10 <- c(
+      "PRS II (structural)" = "3SLS structural system; historical national series (1990 GK$)",
+      "PRS II (VAR)" = "VAR in differences; same data",
+      "PRS I (structural)" = "3SLS structural system",
+      "PRS I (VAR)" = "VAR in differences"
+    )
+    # Las descripciones conceptuales son texto editorial, no estimaciones: se
+    # declaran aqui para que la tabla salga completa del pipeline.
+    prs_concept10 <- c(
+      "PRS II (structural)" = "1950s normalization occurs; the 1959 Plan is never implemented; domestic distortions channel",
+      "PRS II (VAR)" = "Same concept, with no causal structure imposed",
+      "PRS I (structural)" = "Autarkic distortions of 1939-1951 persist through 1975",
+      "PRS I (VAR)" = "Same concept, with no causal structure imposed"
+    )
+    scm_concept10 <- c(
+      "Full pool (baseline)" = "Spain extrapolated via a blended European-American donor set; bundles domestic reform and international insertion",
+      "Europe only" = "Counterfactual inside the postwar European regime; partly co-treated",
+      "Europe excl. Portugal" = "European counterfactual net of the most clearly co-treated donor",
+      "Latin America only" = "Counterfactual outside the European growth regime altogether"
+    )
+    # "18 donors (Portugal 61%)": se anota el donante dominante cuando el pool
+    # esta concentrado, que es justo lo que el texto discute.
+    pool_method10 <- function(s) {
+      n_txt <- fmt_int(s$summary$included_donors)
+      if (is.finite(s$summary$top_weight) && s$summary$top_weight >= 0.5) {
+        sprintf("Synthetic control; %s donors (%s %.0f%%)", n_txt,
+                pretty_country(s$summary$top_donor), s$summary$top_weight * 100)
+      } else {
+        sprintf("Synthetic control; %s donors", n_txt)
+      }
+    }
+    prs_names10 <- c(
+      "PRS II (structural)" = "PRS Scenario II — structural",
+      "PRS II (VAR)" = "PRS Scenario II — VAR",
+      "PRS I (structural)" = "PRS Scenario I — structural",
+      "PRS I (VAR)" = "PRS Scenario I — VAR"
+    )
+    scm_rows10 <- dplyr::bind_rows(
+      dplyr::tibble(
+        Counterfactual = "SCM — full pool (baseline)",
+        `Method / data` = "Synthetic control; PWT 11.0 (constant-2017 US$)",
+        Concept = unname(scm_concept10["Full pool (baseline)"]),
+        ratio = if (is.finite(baseline_gdp$summary$terminal_gap)) (obs75 - baseline_gdp$summary$terminal_gap) / obs75 else NA_real_
+      ),
+      dplyr::bind_rows(lapply(scm_pool_names, function(nm) {
+        s10 <- restricted_summaries[[nm]]
+        if (is.null(s10) || !is.finite(s10$summary$terminal_gap)) return(NULL)
+        dplyr::tibble(
+          Counterfactual = sprintf("SCM — %s", nm),
+          `Method / data` = pool_method10(s10),
+          Concept = unname(scm_concept10[nm]),
+          ratio = (obs75 - s10$summary$terminal_gap) / obs75
+        )
+      }))
+    )
+    table10 <- dplyr::bind_rows(
+      dplyr::tibble(
+        Counterfactual = unname(prs_names10[prs_markers10$label]),
+        `Method / data` = unname(prs_meta10[prs_markers10$label]),
+        Concept = unname(prs_concept10[prs_markers10$label]),
+        ratio = prs_markers10$ratio
+      ),
+      scm_rows10
+    ) |>
+      dplyr::transmute(
+        Counterfactual = Counterfactual,
+        `Method / data` = `Method / data`,
+        Concept = Concept,
+        `1975 counterf. / observed` = vapply(ratio, function(r) fmt_num(r, 2), character(1)),
+        `Implied 1975 loss` = vapply(ratio, function(r) if (is.finite(r)) sprintf("%.0f%%", (1 - r) * 100) else "-", character(1))
+      )
+    write_journal_table(table10, file.path(tables_main_dir, "Table_10_counterfactual_1975_scm_and_prs.csv"))
   }
 
   if (!is.null(capital_summary)) {

@@ -26,21 +26,26 @@ drop_one_excluded_donors <- c("Brazil", "Ecuador")
 # Regla ex ante para aceptar la especificacion principal del baseline.
 # Si "all" no cumple estabilidad, se prueban candidatos drop_top1..top_k
 # y se selecciona el de menor pre-MSPE que cumpla los umbrales.
-# NOTA: top_weight_max revisado de 0.40 a 0.45 al corregir el matching de
-# nombres con PWT (Turkey/Bolivia/Venezuela entran al pool y el peso maximo
-# del baseline sin restricciones pasa de 0.387 a 0.405). La variante con
-# umbral 0.40 (que excluye a Turkey via drop_top1) se conserva como robustez.
+# La solucion sin restricciones concentra 0.664 en Nicaragua y no pasa el
+# limite de concentracion; el fallback selecciona el pool sin Estados Unidos
+# (peso maximo 0.373 en Nicaragua). La sensibilidad de esta seleccion al
+# umbral se exporta como Tabla A3 del apendice: el pool elegido no cambia
+# en 0.40/0.45/0.50, y la variante con el gate desactivado es la fila
+# "Full pool incl. US" de la Tabla 8.
 stability_gate_enabled <- TRUE
 stability_gate_specs <- c("baseline")
 stability_top_weight_max <- 0.45
+# Umbrales alternativos evaluados a posteriori sobre los mismos candidatos
+# ya estimados (no re-estiman nada): alimentan la tabla de sensibilidad.
+stability_top_weight_sensitivity <- c(0.40, 0.45, 0.50)
 
 # Bateria de predictores (Ferman-Pinto-Possebom 2020) para gdpcap/baseline:
 # re-estima el baseline sobre el mismo pool variando solo el set de
 # predictores (todos los lags del outcome, lags impares, first/mid/last).
-# Alimenta la Tabla A3 del apendice.
+# Alimenta la Tabla 7 del manuscrito.
 predictor_battery_enabled <- TRUE
 
-# Pools de donantes restringidos para gdpcap/baseline (Tabla A4):
+# Pools de donantes restringidos para gdpcap/baseline (Tabla 8):
 # Europa-only, Europa sin Portugal (donante casi-tratado: EFTA 1960) y
 # LatAm-only (America sin Canada/EEUU). Mismos predictores que el baseline.
 # Incluye ademas la variante "pool completo sin stability gate" (EEUU dentro),

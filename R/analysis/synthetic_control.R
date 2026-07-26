@@ -1834,6 +1834,7 @@ run_synthetic_control <- function(session_dir) {
     write_working_csv(placebo_filter_df, placebo_filter_path)
     save_table_jpg(placebo_filter_df, file.path(specs_dir, "placebo_filter_summary.jpg"), title = "Placebo filter summary (RMSPE cutoffs)")
   }
+  stability_df <- NULL
   if (length(stability_selection_rows) > 0) {
     stability_df <- dplyr::bind_rows(stability_selection_rows)
     stability_path <- file.path(specs_dir, "stability_selection_summary.csv")
@@ -1847,7 +1848,8 @@ run_synthetic_control <- function(session_dir) {
     tables_dir = tables_dir,
     spec_outputs = spec_outputs,
     specs = specs,
-    treatment_identifier = treatment_identifier
+    treatment_identifier = treatment_identifier,
+    stability_selection = stability_df
   )
 
   list(

@@ -5,23 +5,42 @@ raw_data_targets <- function() {
 }
 
 # The pinned PWT file is served through a Dataverse redirect to an object store
-# whose latency is occasionally well above R's 60-second default timeout. The
-# retries and the raised timeout keep a transient stall from aborting a full
-# replication run; the checksum validation downstream is unchanged.
-download_raw_target <- function(url, dest, attempts = 3L, timeout_seconds = 600L) {
+# that stalls well beyond R's 60-second default timeout from some networks
+# (observed repeatedly from GitHub-hosted runners). Each attempt therefore
+# raises the timeout, and the attempts alternate HTTP stacks: R's default
+# method first, then the system curl binary, which handles the redirect chain
+# and slow first byte more forgivingly. Checksum validation downstream is
+# unchanged, so a mirror or a cache can never silently alter the input.
+CURL_EXTRA_ARGS <- paste(
+  "--location", "--fail", "--silent", "--show-error",
+  "--connect-timeout 60", "--max-time 900",
+  "--retry 2", "--retry-delay 5", "--retry-connrefused"
+)
+
+download_raw_target <- function(url, dest, attempts = 4L, timeout_seconds = 900L) {
   ensure_dir(dirname(dest))
 
   old_timeout <- getOption("timeout")
   options(timeout = max(old_timeout, timeout_seconds))
   on.exit(options(timeout = old_timeout), add = TRUE)
 
+  # Alterna metodo por defecto y curl del sistema en intentos sucesivos.
+  method_for <- function(attempt) if (attempt %% 2L == 1L) "auto" else "curl"
+
   for (attempt in seq_len(attempts)) {
-    message(sprintf("Downloading %s -> %s (attempt %d of %d)", url, dest, attempt, attempts))
+    method <- method_for(attempt)
+    message(sprintf("Downloading %s -> %s (attempt %d of %d, method %s)",
+                    url, dest, attempt, attempts, method))
 
     status <- tryCatch(
-      utils::download.file(url, destfile = dest, mode = "wb", quiet = FALSE),
+      if (identical(method, "curl")) {
+        utils::download.file(url, destfile = dest, mode = "wb", quiet = FALSE,
+                             method = "curl", extra = CURL_EXTRA_ARGS)
+      } else {
+        utils::download.file(url, destfile = dest, mode = "wb", quiet = FALSE)
+      },
       error = function(e) {
-        message(sprintf("Download attempt %d failed: %s", attempt, conditionMessage(e)))
+        message(sprintf("Download attempt %d (%s) failed: %s", attempt, method, conditionMessage(e)))
         1L
       }
     )

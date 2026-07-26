@@ -29,6 +29,16 @@ jobs:
         with:
           cache-version: 1
 
+      # The pinned input is immutable and checksum-validated by the pipeline, so
+      # caching it is safe: a cache hit skips the upstream fetch, and a stale or
+      # corrupted file fails validation and is re-downloaded. This keeps the
+      # check independent of Dataverse/SURF availability from the runner network.
+      - name: Cache pinned raw input
+        uses: actions/cache@v4
+        with:
+          path: data/raw/pwt110.xlsx
+          key: pwt110-${{ hashFiles('data/raw/checksums.txt') }}
+
       - name: Run full journal pipeline
         shell: pwsh
         run: |

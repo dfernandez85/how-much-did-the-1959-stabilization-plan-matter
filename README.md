@@ -43,7 +43,7 @@ main.R            # Main entry point
 ```
 
 ## Dependencies
-- R 4.x
+- **R 4.5.x is required.** The version is pinned in `renv.lock` (4.5.1) and enforced at start-up by `check_r_version()` in `main.R`. R 4.6.x is *not* supported: its toolchain compiles C sources under C23 by default, which breaks several pinned dependencies (`cli`, `data.table`, among others). Older releases (4.4 and below) are untested against the lockfile.
 - `renv`: run `renv::restore()` before executing `main.R`
 - The packages listed in `R/config/packages.R`, loaded internally through `load_required_packages()`
 
@@ -75,6 +75,32 @@ Each execution creates a new timestamped folder under `output/sessions/<timestam
 - `tables/main`: tables used in the main manuscript
 - `tables/appendix`: tables used in the online appendix
 - `run_config.yml` and `session_info.txt`: reproducibility metadata for each session
+
+### Correspondence with the manuscript
+Exported files carry the number, the column layout, and the rounding of the table
+as it appears in the paper. No table in the manuscript is assembled by hand from
+several outputs.
+
+| Manuscript | Exported file |
+| --- | --- |
+| Table 3. Baseline donor weights | `tables/main/Table_3_baseline_donor_weights.csv` |
+| Table 4. Predictor balance | `tables/main/Table_4_predictor_balance.csv` |
+| Table 5. Baseline fit, effect size, placebo inference | `tables/main/Table_5_baseline_fit_effect_size_and_placebo_inference.csv` |
+| Table 6. Leave-one-donor-out robustness | `tables/main/Table_6_leave_one_donor_out_robustness.csv` |
+| Table 7. Predictor-set robustness | `tables/main/Table_7_predictor_set_robustness.csv` |
+| Table 8. Restricted donor pools | `tables/main/Table_8_restricted_donor_pools.csv` |
+| Table 9. Pseudo-treatment dates | `tables/main/Table_9_pseudo_treatment_dates.csv` |
+| Table 10. Counterfactual Spain in 1975 (SCM and PRS) | `tables/main/Table_10_counterfactual_1975_scm_and_prs.csv` |
+| Figures 1-10 | `plots/main/Figure_<n>_*.png` |
+| Appendix Table 5A. Observed and synthetic series | `tables/appendix/Table_5A_gdp_per_capita_observed_synthetic_series.csv` |
+| Appendix Tables A1-A3, B1-B2, C1-C2, D1 | `tables/appendix/Table_<id>_*.csv` |
+| Appendix Figures A1-A2, B1-B2, C1-C2 | `plots/appendix/Figure_<id>_*.png` |
+
+Table 10 is the only export that combines pipeline estimates with published
+figures: the synthetic-control rows are computed from the session, while the
+Prados de la Escosura, Roses, and Sanz-Villarroya (2012) scenario levels are
+declared as literature constants in `R/analysis/journal_exports.R` with their
+source in the surrounding comment.
 
 ## Module overview
 - `R/analysis/synthetic_control.R`: prepares the panel, runs MSCMT, computes placebo exercises, fit filters, the stability gate, and the robustness specifications required by the paper
