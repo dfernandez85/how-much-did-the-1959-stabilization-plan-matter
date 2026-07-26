@@ -107,3 +107,12 @@ source in the surrounding comment.
 - `R/analysis/journal_exports.R`: takes the estimated objects and exports only the canonical figures and tables used in the manuscript and appendix; intermediate plot and table trees are removed at the end of the run so that each session remains clean
 
 The authoritative, reproducible entry point for the project is `main.R`.
+
+## Citation
+Please cite the archived release rather than the branch. The metadata used by
+Zenodo and by GitHub's "Cite this repository" button is in `CITATION.cff`.
+
+## License
+Released under the MIT License; see `LICENSE`. The Penn World Table 11.0 input
+is redistributed by its own maintainers and is retrieved at run time from its
+pinned upstream source, not shipped with this repository.

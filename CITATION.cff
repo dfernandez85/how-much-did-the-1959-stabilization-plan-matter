@@ -1,0 +1,29 @@
+cff-version: 1.2.0
+message: "If you use this replication package, please cite it as below."
+title: "Replication package for: How Much Did the 1959 Stabilization Plan Matter? A Synthetic-Control Reassessment of Spain's Growth Acceleration"
+abstract: "Full replication package for a synthetic-control estimate of the aggregate effect of Spain's 1959 Stabilization and Liberalization Plan on real GDP per capita, estimated on Penn World Table 11.0 data for 1950-1975. The package pins the raw input against versioned checksums, fixes every optimizer and screening setting in advance, and reproduces every table and figure of the paper with a single command."
+type: software
+authors:
+  - family-names: "Fernández Méndez"
+    given-names: "Daniel"
+    orcid: "https://orcid.org/0000-0002-9271-0661"
+    affiliation: "Universidad de las Hespérides, Las Palmas de Gran Canaria, Spain"
+  - family-names: "Fernández Luiña"
+    given-names: "Eduardo"
+    orcid: "https://orcid.org/0000-0001-9073-1672"
+    affiliation: "Universidad de las Hespérides, Las Palmas de Gran Canaria, Spain"
+  - family-names: "Calvo López"
+    given-names: "Santiago"
+    orcid: "https://orcid.org/0000-0002-8654-4695"
+    affiliation: "Universidad de las Hespérides, Las Palmas de Gran Canaria, Spain"
+keywords:
+  - synthetic control
+  - Spain
+  - 1959 Stabilization Plan
+  - counterfactual analysis
+  - economic history
+  - reproducible research
+license: MIT
+repository-code: "https://github.com/dfernandez85/how-much-did-the-1959-stabilization-plan-matter"
+version: "2.2.0"
+date-released: "2026-07-26"
