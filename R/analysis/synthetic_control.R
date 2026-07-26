@@ -975,7 +975,13 @@ run_synthetic_control <- function(session_dir) {
         safe_ggsave(file.path(pool_plots, "Figure_3_synth_comparison.png"), p3)
         safe_ggsave(file.path(pool_plots, "Figure_4_synth_gaps.png"), p4)
 
-        cl <- tryCatch(parallel::makeCluster(max(1, min(4, parallel::detectCores()))), error = function(e) NULL)
+        # Se deja un nucleo libre a proposito: con tantos workers como nucleos,
+        # el agente de GitHub Actions se queda sin CPU para sus latidos y el
+        # runner pierde la comunicacion con el servidor a mitad de la corrida
+        # (observado en dos ejecuciones de ~3h40m sobre 4 vCPU). El tope de 4
+        # se mantiene, de modo que en maquinas grandes nada cambia.
+        placebo_workers <- max(1L, min(4L, parallel::detectCores() - 1L))
+        cl <- tryCatch(parallel::makeCluster(placebo_workers), error = function(e) NULL)
         resplacebo <- suppressWarnings(
           MSCMT::mscmt(
             datprep,

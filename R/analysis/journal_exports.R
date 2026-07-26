@@ -528,7 +528,9 @@ export_journal_outputs <- function(session_dir,
       y_formatter = outcome_meta$gdpcap$y_formatter,
       reference_year = 1959.5,
       reference_label = 1959,
-      title = "Real GDP per capita gap paths under the baseline and leave-one-donor-out specifications"
+      # Titulo corto: el largo se salia del lienzo. La descripcion completa
+      # vive en el pie de la Figura A2 del anexo.
+      title = "GDP per capita gap: baseline and donor exclusions"
     )
     safe_ggsave_local(file.path(figures_appendix_dir, "Figure_A2_gdp_per_capita_leave_one_donor_out_gap_paths.png"), pA2)
   }
@@ -599,7 +601,7 @@ export_journal_outputs <- function(session_dir,
     if (!is.na(terminal_band_label) &&
         is.finite(baseline_gdp$summary$terminal_lower) &&
         baseline_gdp$summary$terminal_lower > 0) {
-      terminal_band_label <- paste0(terminal_band_label, " — excludes zero")
+      terminal_band_label <- paste0(terminal_band_label, " — lies entirely above zero")
     }
     avg_band_label <- fmt_interval(
       baseline_gdp$summary$avg_lower, baseline_gdp$summary$avg_upper, 0)
@@ -713,6 +715,31 @@ export_journal_outputs <- function(session_dir,
       `Positive donors` = c(fmt_int(treat_1970$summary$positive_donors), fmt_int(treat_1980$summary$positive_donors))
     )
     write_journal_table(appendix_d1, file.path(tables_appendix_dir, "Table_D1_pseudo_treatment_timing_summary.csv"))
+
+    # Tabla D2: composicion completa de los sinteticos de los pseudo-tratamientos.
+    # Es lo que hace la seccion D complementaria y no un subconjunto de la Tabla 9
+    # del texto principal, que informa de ajuste e inferencia pero no de pesos.
+    # No estima nada nuevo: reutiliza los pesos ya calculados de cada corrida.
+    pseudo_weight_specs <- list(
+      `Pseudo-treatment 1970` = treat_1970$pool_obj$donor_weights,
+      `Pseudo-treatment 1980` = treat_1980$pool_obj$donor_weights
+    )
+    appendix_d2 <- dplyr::bind_rows(
+      lapply(
+        names(pseudo_weight_specs),
+        function(spec_label) {
+          df <- pseudo_weight_specs[[spec_label]]
+          if (is.null(df) || nrow(df) == 0) return(NULL)
+          dplyr::transmute(df, Country = Country, specification = spec_label, Weight = round(Weight, 3))
+        }
+      )
+    )
+    if (nrow(appendix_d2) > 0) {
+      appendix_d2 <- appendix_d2 |>
+        tidyr::pivot_wider(names_from = specification, values_from = Weight, values_fill = 0) |>
+        dplyr::arrange(Country)
+      write_journal_table(appendix_d2, file.path(tables_appendix_dir, "Table_D2_pseudo_treatment_donor_weights.csv"))
+    }
   }
 
   if (!is.null(baseline_gdp) && length(drop_one_summaries) > 0) {

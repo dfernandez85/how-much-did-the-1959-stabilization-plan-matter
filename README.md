@@ -93,7 +93,7 @@ several outputs.
 | Table 10. Counterfactual Spain in 1975 (SCM and PRS) | `tables/main/Table_10_counterfactual_1975_scm_and_prs.csv` |
 | Figures 1-10 | `plots/main/Figure_<n>_*.png` |
 | Appendix Table 5A. Observed and synthetic series | `tables/appendix/Table_5A_gdp_per_capita_observed_synthetic_series.csv` |
-| Appendix Tables A1-A3, B1-B2, C1-C2, D1 | `tables/appendix/Table_<id>_*.csv` |
+| Appendix Tables A1-A3, B1-B2, C1-C2, D1-D2 | `tables/appendix/Table_<id>_*.csv` |
 | Appendix Figures A1-A2, B1-B2, C1-C2 | `plots/appendix/Figure_<id>_*.png` |
 
 Table 10 is the only export that combines pipeline estimates with published
