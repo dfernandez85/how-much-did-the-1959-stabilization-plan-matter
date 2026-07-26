@@ -952,13 +952,15 @@ export_journal_outputs <- function(session_dir,
       "Full pool (baseline)" = "Spain extrapolated via a blended European-American donor set; bundles domestic reform and international insertion",
       "Europe only" = "Counterfactual inside the postwar European regime; partly co-treated",
       "Europe excl. Portugal" = "European counterfactual net of the most clearly co-treated donor",
-      "Latin America only" = "Counterfactual outside the European growth regime altogether"
+      "Latin America only" = "Counterfactual outside the European growth regime"
     )
-    # "18 donors (Portugal 61%)": se anota el donante dominante cuando el pool
-    # esta concentrado, que es justo lo que el texto discute.
-    pool_method10 <- function(s) {
+    # "18 donors (Portugal 61%)": el peso se calcula, pero anotarlo es una
+    # decision editorial (el texto discute la co-tratacion de Portugal), asi
+    # que se declara por pool en lugar de dispararse con un umbral.
+    scm_annotate_top10 <- c("Europe only")
+    pool_method10 <- function(s, pool_name) {
       n_txt <- fmt_int(s$summary$included_donors)
-      if (is.finite(s$summary$top_weight) && s$summary$top_weight >= 0.5) {
+      if (pool_name %in% scm_annotate_top10 && is.finite(s$summary$top_weight)) {
         sprintf("Synthetic control; %s donors (%s %.0f%%)", n_txt,
                 pretty_country(s$summary$top_donor), s$summary$top_weight * 100)
       } else {
@@ -983,7 +985,7 @@ export_journal_outputs <- function(session_dir,
         if (is.null(s10) || !is.finite(s10$summary$terminal_gap)) return(NULL)
         dplyr::tibble(
           Counterfactual = sprintf("SCM — %s", nm),
-          `Method / data` = pool_method10(s10),
+          `Method / data` = pool_method10(s10, nm),
           Concept = unname(scm_concept10[nm]),
           ratio = (obs75 - s10$summary$terminal_gap) / obs75
         )
