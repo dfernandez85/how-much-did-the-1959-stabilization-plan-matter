@@ -601,7 +601,7 @@ export_journal_outputs <- function(session_dir,
     if (!is.na(terminal_band_label) &&
         is.finite(baseline_gdp$summary$terminal_lower) &&
         baseline_gdp$summary$terminal_lower > 0) {
-      terminal_band_label <- paste0(terminal_band_label, " — lies entirely above zero")
+      terminal_band_label <- paste0(terminal_band_label, " (lies entirely above zero)")
     }
     avg_band_label <- fmt_interval(
       baseline_gdp$summary$avg_lower, baseline_gdp$summary$avg_upper, 0)
@@ -995,14 +995,14 @@ export_journal_outputs <- function(session_dir,
       }
     }
     prs_names10 <- c(
-      "PRS II (structural)" = "PRS Scenario II — structural",
-      "PRS II (VAR)" = "PRS Scenario II — VAR",
-      "PRS I (structural)" = "PRS Scenario I — structural",
-      "PRS I (VAR)" = "PRS Scenario I — VAR"
+      "PRS II (structural)" = "PRS Scenario II (structural)",
+      "PRS II (VAR)" = "PRS Scenario II (VAR)",
+      "PRS I (structural)" = "PRS Scenario I (structural)",
+      "PRS I (VAR)" = "PRS Scenario I (VAR)"
     )
     scm_rows10 <- dplyr::bind_rows(
       dplyr::tibble(
-        Counterfactual = "SCM — full pool (baseline)",
+        Counterfactual = "SCM, full pool (baseline)",
         `Method / data` = "Synthetic control; PWT 11.0 (constant-2017 US$)",
         Concept = unname(scm_concept10["Full pool (baseline)"]),
         ratio = if (is.finite(baseline_gdp$summary$terminal_gap)) (obs75 - baseline_gdp$summary$terminal_gap) / obs75 else NA_real_
@@ -1011,7 +1011,7 @@ export_journal_outputs <- function(session_dir,
         s10 <- restricted_summaries[[nm]]
         if (is.null(s10) || !is.finite(s10$summary$terminal_gap)) return(NULL)
         dplyr::tibble(
-          Counterfactual = sprintf("SCM — %s", nm),
+          Counterfactual = sprintf("SCM, %s", nm),
           `Method / data` = pool_method10(s10, nm),
           Concept = unname(scm_concept10[nm]),
           ratio = (obs75 - s10$summary$terminal_gap) / obs75
